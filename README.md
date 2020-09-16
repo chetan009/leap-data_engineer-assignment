@@ -8,7 +8,7 @@ Good luck!
 
 ## Assignment
 
-In this repository you'll find a directory with parquet files containing energy meter-data.
+In this repository you'll find a directory with files containing energy meter-data.
 
 Please build a PySpark solution that reads in the data and writes out a table showing the energy usage for each meter at each 15 minute interval, including  additional data fields with the hourly averaged energy usage and a flag indicating missing intervals.  The only requirement is that the solution should only include native PySpark (and thereby no UDFs).
 
