@@ -32,24 +32,46 @@ mi,ma = df.select(f.min('timestamp').cast('long'), f.max('timestamp').cast('long
 # 15 min interval
 st = 15 * 60
 
-ref = spark.range((mi / st)*st, (ma/st + 1) * st, st).select( \
-                     f.col('id').cast('timestamp').alias('timestamp'))
+meter_ids = df.select('meter_id').distinct()
 
-join_res = ref.join(df, 'timestamp', 'left') 
+ref = spark.range((mi / st)*st, (ma/st + 1) * st, st).select( \
+                     f.col('id').cast('timestamp').alias('timestamp_ref'))
+
+# Cross join with all meter_ids
+ref_mids = ref.crossJoin(meter_ids).withColumnRenamed('meter_id', 'meter_id_ref')
+
+join_res = ref_mids.join(df, 
+                        ((ref_mids.timestamp_ref == df.timestamp) &\
+                        (ref_mids.meter_id_ref == df.meter_id)), 
+                        'left')\
+                   .drop('meter_id').drop('timestamp')\
+                   .withColumn("energy_wh", f.coalesce('energy_wh', f.lit(0.0)))
 
 # adding flag 0 if value is 0.0 else 1
 df_flag = join_res.withColumn('flag', f.when(f.col('energy_wh') == 0.0, 0).otherwise(1))
 
 #calculate hourly average energy 
-hr_res =  df_flag.select('meter_id', f.date_format('interval_date_time', "yyyy mm dd hh").alias('hr_date'), 'energy_wh').orderBy('meter_id', 'hr_date').groupBy('meter_id', 'hr_date').agg(f.mean('energy_wh').alias('avg_hr_energy'))
+hr_res =  df_flag.select('meter_id_ref', 
+                         f.date_format('timestamp_ref', "yyyy mm dd hh").alias('hr_date'), 
+                         'energy_wh')\
+                 .orderBy('meter_id_ref', 'hr_date')\
+                 .groupBy('meter_id_ref', 'hr_date')\
+                 .agg(f.mean('energy_wh').alias('avg_hr_energy'))\
+                 .withColumnRenamed('meter_id_ref', 'meter_id')
 
 # result 
-result = df_flag.join(hr_res, (df_flag.meter_id == hr_res.meter_id) & (f.date_format('interval_date_time', "yyyy mm dd hh")== hr_res.hr_date), 'inner').drop(hr_res.meter_id)
-
-result.select('meter_id',
-              'timestamp',
+result = df_flag.join(hr_res, 
+                     (df_flag.meter_id_ref == hr_res.meter_id) & \
+                     (f.date_format('timestamp_ref', "yyyy mm dd hh")== hr_res.hr_date),
+                     'inner').drop(hr_res.meter_id)
+ 
+result.select('meter_id_ref',
+              'timestamp_ref',
               'energy_wh',
               'flag',
-              'avg_hr_energy').show(100)
+              'avg_hr_energy')\
+      .withColumnRenamed('meter_id_ref', 'meter_id')\
+      .withColumnRenamed('timestamp_ref', 'timestamp')\
+      .orderBy('meter_id', 'timestamp').show(1000, truncate=False)
 
 sys.exit(0)
